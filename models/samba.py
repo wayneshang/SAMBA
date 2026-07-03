@@ -67,7 +67,7 @@ class SAMBA(nn.Module):
         ADJ = self.gaussian_kernel_graph(self.adj, xx, gamma=self.gamma)
         
         # Identity matrix
-        I = torch.eye(input_ids.size(2)).cuda()
+        I = torch.eye(input_ids.size(2), device=input_ids.device, dtype=input_ids.dtype)
         
         # Build Chebyshev polynomial support set
         support_set = [I, ADJ]

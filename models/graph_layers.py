@@ -36,7 +36,7 @@ class gconv(nn.Module):
         ADJ = F.softmax(F.relu(torch.mm(self.adj, self.adj.transpose(0, 1))), dim=1)
         
         # Build Chebyshev polynomial support set
-        support_set = [torch.eye(self.node_num).cuda(), ADJ]
+        support_set = [torch.eye(self.node_num, device=ADJ.device, dtype=ADJ.dtype), ADJ]
         
         for k in range(2, self.cheb_k):
             support_set.append(torch.matmul(2 * ADJ, support_set[-1]) - support_set[-2])
@@ -80,7 +80,7 @@ class AVWGCN(nn.Module):
         # Generate adaptive supports
         supports = F.softmax(F.relu(self.node_embeddings), dim=2)
         
-        I = torch.eye(self.inp).cuda()
+        I = torch.eye(self.inp, device=x.device, dtype=x.dtype)
         I2 = I[None, :, :].repeat(x.size(1), 1, 1)
         
         support_set = [I2, supports]

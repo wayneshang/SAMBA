@@ -9,6 +9,15 @@ import pandas as pd
 import numpy as np
 
 
+def _get_default_device():
+    """Return the best available PyTorch device."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 class MinMaxNorm01:
     """Scale data to range [0, 1]"""
     
@@ -36,11 +45,11 @@ class MinMaxNorm01:
         return x
 
 
-def data_loader(X, Y, batch_size, shuffle=True, drop_last=True):
+def data_loader(X, Y, batch_size, shuffle=True, drop_last=True, device=None):
     """Create PyTorch DataLoader from tensors"""
-    cuda = True if torch.cuda.is_available() else False
-    TensorFloat = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-    X, Y = TensorFloat(X), TensorFloat(Y)
+    device = torch.device(device) if device is not None else _get_default_device()
+    X = torch.as_tensor(X, dtype=torch.float32, device=device)
+    Y = torch.as_tensor(Y, dtype=torch.float32, device=device)
     data = torch.utils.data.TensorDataset(X, Y)
     dataloader = torch.utils.data.DataLoader(
         data, 
@@ -51,7 +60,7 @@ def data_loader(X, Y, batch_size, shuffle=True, drop_last=True):
     return dataloader
 
 
-def prepare_data(csv_file, window=5, predict=1, test_ratio=0.15, val_ratio=0.05):
+def prepare_data(csv_file, window=5, predict=1, test_ratio=0.15, val_ratio=0.05, device=None):
     """
     Prepare data for training from CSV file
     
@@ -61,6 +70,7 @@ def prepare_data(csv_file, window=5, predict=1, test_ratio=0.15, val_ratio=0.05)
         predict: Output sequence length
         test_ratio: Ratio of data for testing
         val_ratio: Ratio of data for validation
+        device: Optional torch device for created tensors
     
     Returns:
         train_loader, val_loader, test_loader, mmn (normalizer)
@@ -69,9 +79,7 @@ def prepare_data(csv_file, window=5, predict=1, test_ratio=0.15, val_ratio=0.05)
     X = pd.read_csv(csv_file, index_col="Date", parse_dates=True)
     
     # Basic preprocessing
-    name = X["Name"][0]
-    del X["Name"]
-    cols = X.columns
+    X = X.drop(columns=["Name"])
     X["Target"] = (X["Price"].pct_change().shift(-1) > 0).astype(int)
     X.dropna(inplace=True)
     
@@ -132,22 +140,23 @@ def prepare_data(csv_file, window=5, predict=1, test_ratio=0.15, val_ratio=0.05)
     X_train, Y_train = create_sequences(a_train_norm, start_offset=0)
     X_val, Y_val = create_sequences(a_val_norm, start_offset=0)
     
-    # Create tensors and move to GPU
-    X_test = torch.Tensor.float(X_test).cuda() if X_test is not None else None
-    Y_test = torch.Tensor.float(Y_test).cuda() if Y_test is not None else None
-    
-    X_train = torch.Tensor.float(X_train).cuda() if X_train is not None else None
-    Y_train = torch.Tensor.float(Y_train).cuda() if Y_train is not None else None
-    
-    X_val = torch.Tensor.float(X_val).cuda() if X_val is not None else None
-    Y_val = torch.Tensor.float(Y_val).cuda() if Y_val is not None else None
+    # Create tensors on the selected runtime device
+    device = torch.device(device) if device is not None else _get_default_device()
+    X_test = X_test.float().to(device) if X_test is not None else None
+    Y_test = Y_test.float().to(device) if Y_test is not None else None
+
+    X_train = X_train.float().to(device) if X_train is not None else None
+    Y_train = Y_train.float().to(device) if Y_train is not None else None
+
+    X_val = X_val.float().to(device) if X_val is not None else None
+    Y_val = Y_val.float().to(device) if Y_val is not None else None
     
     # Get number of features (from X_train which should always exist)
     num_features = X_train.shape[2] if X_train is not None else a.shape[1] - 1
     
     # Create data loaders
-    train_loader = data_loader(X_train, Y_train, 64, shuffle=False, drop_last=False)
-    val_loader = data_loader(X_val, Y_val, 64, shuffle=False, drop_last=False)
-    test_loader = data_loader(X_test, Y_test, 64, shuffle=False, drop_last=False)
+    train_loader = data_loader(X_train, Y_train, 64, shuffle=False, drop_last=False, device=device)
+    val_loader = data_loader(X_val, Y_val, 64, shuffle=False, drop_last=False, device=device)
+    test_loader = data_loader(X_test, Y_test, 64, shuffle=False, drop_last=False, device=device)
     
     return train_loader, val_loader, test_loader, mmn, num_features

@@ -16,6 +16,22 @@ from utils import (
 from trainer import Trainer
 
 
+def get_runtime_device(preferred_device):
+    """Choose an available runtime device, falling back from CUDA when needed."""
+    preferred = torch.device(preferred_device)
+    if preferred.type == 'cuda' and torch.cuda.is_available():
+        return preferred
+    if preferred.type == 'mps' and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return preferred
+    if preferred.type == 'cpu':
+        return preferred
+    if torch.cuda.is_available():
+        return torch.device('cuda:0')
+    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
+
 def masked_mae_loss(scaler, mask_value):
     """Masked MAE loss function"""
     def loss(preds, labels):
@@ -43,7 +59,11 @@ def main():
     
     # Initialize seed for reproducibility
     init_seed(config.seed)
-    
+
+    device = get_runtime_device(config.device)
+    config.device = str(device)
+    print(f"🖥️  Device: {device}")
+
     # Prepare data
     print("Loading and preparing data...")
     
@@ -79,7 +99,8 @@ def main():
         window=config.lag,
         predict=config.horizon,
         test_ratio=config.test_ratio,
-        val_ratio=config.val_ratio
+        val_ratio=config.val_ratio,
+        device=device
     )
     
     # Update config with actual number of features (nodes in the graph)
@@ -88,6 +109,7 @@ def main():
     
     # Convert config to dict for compatibility
     args = config.to_dict()
+    args['cuda'] = device.type == 'cuda'
     
     # Initialize model with paper configuration
     print("Initializing SAMBA model...")
@@ -102,7 +124,7 @@ def main():
         args.get("cheb_k")
     )
     
-    model = model.cuda()
+    model = model.to(device)
     
     # Initialize model parameters
     for p in model.parameters():
